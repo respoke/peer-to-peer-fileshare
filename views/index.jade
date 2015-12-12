@@ -1,0 +1,40 @@
+extends layout
+block head
+    title P2P Fileshare
+block content
+    .card: .card-block
+        form#form.list-group
+            .list-group-item
+                a.btn.btn-secondary#generate Generate random room
+            .list-group-item
+                textarea#input.form-control(placeholder="Any room id")
+            .list-group-item
+                button.btn.btn-primary(type="submit") Join
+    script.
+        function randomString() {
+            return Math.random().toString(36).substring(2);
+        }
+        function randomLength() {
+            return Math.floor(Math.random() * 48) + 96;
+        }
+        
+        var $form = document.getElementById('form');
+        var $generateButton = document.getElementById('generate');
+        var $input = document.getElementById('input');
+        
+        $form.onsubmit = function goToRoom(event) {
+            event.preventDefault();
+            var room = document.getElementById('input').value;
+            if (!room) { return; }
+            window.open('/rooms/' + encodeURIComponent(room), '_self');
+        };
+        
+        $generateButton.onclick = function generateRandomRoom() {
+            var i = 6;
+            var length = randomLength();
+            var randomRoom = '';
+            while (randomRoom.length < length) {
+                randomRoom += randomString();
+            }
+            $input.value = randomRoom;
+        };

@@ -1,0 +1,206 @@
+extends layout
+block head
+    title Secure fileshare room
+    style(type="text/css").
+        code {
+            word-wrap: break-word;
+        }
+block content
+    .card
+        .card-block
+            h3 Room ID
+            p: code#groupId
+            h3 My ID
+            p: code#endpointId
+            h3 My Auth Token
+            p: code#token
+            h3 Status
+            p: code#status
+            h3 Peers
+            #peers.card-block
+
+    
+    script(src="http://cdn.respoke.io/v1.55.1/respoke.min.js")
+    script.
+        
+        //- respoke.log.setLevel('debug');
+        window.lastFile = null;
+
+        var $status = document.getElementById('status');
+        var $groupId = document.getElementById('groupId');
+        var $endpointId = document.getElementById('endpointId');
+        var $token = document.getElementById('token');
+        var $status = document.getElementById('status');
+        var $peers = document.getElementById('peers');
+        
+        function processAndSendFile(file, peer, callback) {
+            var reader = new FileReader();
+            var totalBytes = 0;
+            var sentBytes = 0;
+            reader.onprogress = function (evt) {
+                state.status = 'Processed ' + ((evt.loaded / evt.total) * 100).toFixed(0) + '%';
+                totalBytes = evt.total;
+            };
+            reader.onload = function (evt) {
+                state.status = 'Uploading';
+                var result = evt.target.result;
+                var chunks = result.match(/.{1,16000}/g);
+                var sendFileChunk = chunks.map(function (chunk) {
+                    var deferred = respoke.Q.defer();
+                    console.log('sending chunk', chunk.length);
+                    peer.sendMessage({
+                        message: chunk,
+                        onSuccess: function () {
+                            console.log('chunk sent', chunk.length);
+                            sentBytes += chunk.length;
+                            state.status = 'Uploaded ' + ((sentBytes / totalBytes) * 100).toFixed(0) + '%';
+                            deferred.resolve(chunk);
+                        },
+                        onError: function (err) {
+                            console.log('chunk failed', err);
+                            deferred.reject(err)
+                        }
+                    });
+                    return deferred;
+                });
+                respoke.Q.all(sendFileChunk).then(function sendFinalChunk() {
+                    return peer.sendMessage({ message: ' ' + file.name });
+                })
+                .then(callback)
+                .catch(function (err) { throw err; });
+            };
+
+            reader.readAsDataURL(file);
+        }
+
+        function render() {
+            
+            $groupId.innerHTML = '';
+            $endpointId.innerHTML = '';
+            $token.innerHTML = '';
+            $status.innerHTML = '';
+        
+            $groupId.appendChild(document.createTextNode(state.groupId));
+            $endpointId.appendChild(document.createTextNode(state.endpointId));
+            $token.appendChild(document.createTextNode(state.respokeToken));
+            $status.appendChild(document.createTextNode(state.status));
+            
+            $peers.innerHTML = '';
+            Object.keys(state.peers).forEach(function (peerId) {
+                var peerNode = document.createElement('div');
+                var peerNameNode = document.createElement('code');
+                peerNameNode.appendChild(document.createTextNode(peerId));
+                var uploadInput = document.createElement('input');
+                uploadInput.setAttribute('type', 'file');
+                uploadInput.addEventListener('change', function () {
+                    var files = uploadInput.files;
+
+                    if (!files || !files.length) {
+                        return;
+                    }
+
+                    state.status = 'Reading';
+                    processAndSendFile(files[0], state.peers[peerId], function () {
+                        state.status = 'Sent file successfully.';
+                    });
+                });
+                
+                peerNode.appendChild(peerNameNode);
+                peerNode.appendChild(uploadInput);
+                $peers.appendChild(peerNode);
+            });
+        }
+        
+        function State(seed, render) {
+            var stateObject = {};
+            Object.keys(seed).forEach(function (key) {
+                Object.defineProperty(stateObject, key, {
+                    get: function () {
+                        return seed[key];
+                    },
+                    set: function (newValue) {
+                        seed[key] = newValue;
+                        console.log('[state]', key, ':', newValue);
+                        render();
+                    }
+                });
+            });
+            return stateObject;
+        }
+
+        var state = new State({
+            status: 'Connecting',
+            respokeToken: '#{tokenId}',
+            groupId: '#{room}',
+            group: null,
+            endpointId: '#{id}',
+            peers: {},
+            client: respoke.createClient()
+        }, render);
+                
+        state.client.listen('direct-connection', function (evt) {
+            console.log('direct connection incoming', evt);
+            var directConnection = evt.directConnection;
+            var endpointId = evt.endpoint.id;
+            directConnection.dataBuffer = '';
+            if (endpointId !== state.endpointId) {
+                console.log('accepting direct connection', directConnection);
+                directConnection.accept();
+            } else {
+                console.log('direct connection from me', directConnection);
+            }
+            
+            directConnection.listen("close", function () {
+                console.log('direct connection close', endpointId);
+                delete state.peers[endpointId];
+                render();
+            });
+            directConnection.listen("open", function () {
+                console.log('direct connection open', endpointId);
+                state.peers[endpointId] = directConnection;
+                render();
+            });
+            directConnection.listen("message", function (evt) {
+                var message = evt.message.message;
+                var isComplete = message[0] === ' ';
+                if (isComplete) {
+                    var link = document.createElement('a');
+                    link.href = directConnection.dataBuffer;
+                    link.target = '_blank';
+                    link.setAttribute('download', message.substring(1));
+                    link.click();
+                    setTimeout(function () { directConnection.dataBuffer = ''; }, 1000);
+                    window.lastFile = link;
+                } else {
+                    directConnection.dataBuffer += message;
+                }
+                console.log('received chunk', message.length);
+            });
+        });
+
+        state.client.connect({
+            token: state.respokeToken
+        }).then(function () {
+            state.status = 'Setting presence';
+            return state.client.setPresence({ presence: 'available' });
+        }).then(function () {
+            state.status = 'Joining';
+            return state.client.join({ id: state.groupId });
+        }).then(function (group) {
+            state.status = 'Fetching members';
+            group.listen('leave', function (evt) {
+                delete peers[evt.connection.id];
+            });
+            return group.getMembers();
+        }).then(function (connections) {
+            state.status = 'Ready';
+            connections.forEach(function (connection) {
+                if (connection.id !== state.client.connectionId) {
+                    console.log('starting direct connection', connection);
+                    connection.startDirectConnection();
+                }
+            });
+        })
+        .catch(function (err) { throw err; });
+            
+        render();
