@@ -18,3 +18,7 @@ npm start
 ```
 
 Go to http://localhost:3000
+
+## File transfer example code
+
+The file [views/room.jade](views/room.jade) shows how the file transfer is performed.
