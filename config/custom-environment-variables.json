@@ -1,0 +1,6 @@
+{
+    "port": "PORT",
+    "respokeAppSecret": "RESPOKE_APP_SECRET",
+    "respokeAppId": "RESPOKE_APP_ID",
+    "respokeRoleId": "RESPOKE_ROLE_ID"
+}
