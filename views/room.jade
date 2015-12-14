@@ -33,6 +33,9 @@ block content
         var $status = document.getElementById('status');
         var $peers = document.getElementById('peers');
         
+        // When a person selects a file to be uploaded, it gets read as base64 by the HTML5 FileReader.
+        // Then the file is chunked into into messages of size 16k, which are sent in series.
+        // After sending all the chunks ,a single space followed by the filename is the last message.
         function processAndSendFile(file, peer, callback) {
             var reader = new FileReader();
             var totalBytes = 0;
@@ -72,7 +75,9 @@ block content
 
             reader.readAsDataURL(file);
         }
-
+        
+        // This renders the HTML elements to reflect the current state of the app.
+        // It is called automatically, most of the time, when the `state` changes.
         function render() {
             
             $groupId.innerHTML = '';
@@ -88,6 +93,7 @@ block content
             $peers.innerHTML = '';
             Object.keys(state.peers).forEach(function (peerId) {
                 var peerNode = document.createElement('div');
+                peerNode.className = 'card card-block';
                 var peerNameNode = document.createElement('code');
                 peerNameNode.appendChild(document.createTextNode(peerId));
                 var uploadInput = document.createElement('input');
@@ -111,6 +117,7 @@ block content
             });
         }
         
+        // Simple UI state which automatically rerenders upon a state change.
         function State(seed, render) {
             var stateObject = {};
             Object.keys(seed).forEach(function (key) {
@@ -127,7 +134,8 @@ block content
             });
             return stateObject;
         }
-
+        
+        // UI state
         var state = new State({
             status: 'Connecting',
             respokeToken: '#{tokenId}',
@@ -137,7 +145,9 @@ block content
             peers: {},
             client: respoke.createClient()
         }, render);
-                
+        
+        // What to do when there is an incoming peer-to-peer connection.
+        // Listen for messages, which are chunks of a file encoded as base64.
         state.client.listen('direct-connection', function (evt) {
             console.log('direct connection incoming', evt);
             var directConnection = evt.directConnection;
@@ -177,7 +187,8 @@ block content
                 console.log('received chunk', message.length);
             });
         });
-
+        
+        // Connecting to respoke, which provides peer discovery and data channel signaling
         state.client.connect({
             token: state.respokeToken
         }).then(function () {
